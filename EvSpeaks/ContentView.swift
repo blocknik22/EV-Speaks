@@ -9,6 +9,21 @@ import SwiftUI
 import AVFoundation
 import PhotosUI
 
+// MARK: - Data Models
+
+struct Folder: Identifiable, Codable {
+    let id = UUID()
+    var name: String
+    var icons: [SpeakingIcon]
+    var isDefault: Bool = false
+    
+    init(name: String, icons: [SpeakingIcon] = [], isDefault: Bool = false) {
+        self.name = name
+        self.icons = icons
+        self.isDefault = isDefault
+    }
+}
+
 struct ContentView: View {
     var body: some View {
         TabView {
@@ -26,17 +41,23 @@ struct ContentView: View {
 }
 
 struct IconsView: View {
-    @State private var icons: [SpeakingIcon] = []
+    @State private var folders: [Folder] = []
+    @State private var selectedFolder: Folder?
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImage: UIImage?
     @State private var newIconTitle: String = ""
+    @State private var newFolderName: String = ""
     @State private var isShowingAddIcon = false
     @State private var isShowingEditIcon = false
+    @State private var isShowingAddFolder = false
+    @State private var isShowingMoveToFolder = false
     @State private var editingIcon: SpeakingIcon?
     @State private var editingIconIndex: Int?
+    @State private var movingIcon: SpeakingIcon?
     @State private var errorMessage: String?
     @State private var showError = false
     @State private var currentPage = 0
+    @State private var isLoading = false
     @StateObject private var audioRecorder = AudioRecorder()
     @StateObject private var audioPlayer = AudioPlayer()
     private let synthesizer = AVSpeechSynthesizer()
@@ -59,57 +80,67 @@ struct IconsView: View {
         return min(widthBasedSize, heightBasedSize)
     }
     
+    private var currentIcons: [SpeakingIcon] {
+        selectedFolder?.icons ?? []
+    }
+    
     private var totalPages: Int {
-        (icons.count + iconsPerPage - 1) / iconsPerPage
+        (currentIcons.count + iconsPerPage - 1) / iconsPerPage
     }
     
     private var paginatedIcons: [SpeakingIcon] {
         let startIndex = currentPage * iconsPerPage
-        let endIndex = min(startIndex + iconsPerPage, icons.count)
-        return Array(icons[startIndex..<endIndex])
+        let endIndex = min(startIndex + iconsPerPage, currentIcons.count)
+        return Array(currentIcons[startIndex..<endIndex])
     }
     
     var body: some View {
         NavigationStack {
             VStack {
-                if icons.isEmpty {
+                if isLoading {
+                    ProgressView("Loading...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if folders.isEmpty {
                     ContentUnavailableView(
                         "No Icons",
                         systemImage: "square.grid.2x2",
                         description: Text("Tap the + button to add your first icon")
                     )
+                } else if selectedFolder == nil {
+                    // Show folder list
+                    folderListView
                 } else {
-                    TabView(selection: $currentPage) {
-                        ForEach(0..<totalPages, id: \.self) { page in
-                            LazyVGrid(columns: [
-                                GridItem(.flexible(), spacing: 12),
-                                GridItem(.flexible(), spacing: 12)
-                            ], spacing: 12) {
-                                ForEach(paginatedIcons) { icon in
-                                    IconView(icon: icon, onTap: {
-                                        playIconAudio(icon)
-                                    }, onEdit: {
-                                        editIcon(icon)
-                                    }, onDelete: {
-                                        deleteIcon(icon)
-                                    })
-                                    .frame(width: iconSize, height: iconSize * 0.8)
-                                }
-                            }
-                            .padding(12)
-                            .tag(page)
-                        }
-                    }
-                    .tabViewStyle(.page)
-                    .indexViewStyle(.page(backgroundDisplayMode: .always))
+                    // Show icons in selected folder
+                    iconsGridView
                 }
             }
             .navigationTitle("EVSpeaks")
             .toolbar {
-                Button(action: {
-                    isShowingAddIcon = true
-                }) {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if selectedFolder != nil {
+                        Button("Back") {
+                            selectedFolder = nil
+                            currentPage = 0
+                        }
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button(action: {
+                            isShowingAddIcon = true
+                        }) {
+                            Label("Add Icon", systemImage: "plus")
+                        }
+                        
+                        Button(action: {
+                            isShowingAddFolder = true
+                        }) {
+                            Label("Add Folder", systemImage: "folder.badge.plus")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
             .sheet(isPresented: $isShowingAddIcon) {
@@ -120,10 +151,181 @@ struct IconsView: View {
                     addIconView(isEditing: true, editingIcon: icon)
                 }
             }
+            .sheet(isPresented: $isShowingAddFolder) {
+                addFolderView
+            }
+            .sheet(isPresented: $isShowingMoveToFolder) {
+                moveToFolderView
+            }
             .alert("Error", isPresented: $showError, presenting: errorMessage) { _ in
                 Button("OK", role: .cancel) {}
             } message: { error in
                 Text(error)
+            }
+            .task {
+                await loadDataAsync()
+            }
+        }
+    }
+    
+    private var folderListView: some View {
+        List {
+            ForEach(folders) { folder in
+                Button(action: {
+                    selectedFolder = folder
+                    currentPage = 0
+                }) {
+                    HStack {
+                        Image(systemName: "folder.fill")
+                            .foregroundColor(.blue)
+                            .font(.title2)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(folder.name)
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            
+                            Text("\(folder.icons.count) icon\(folder.icons.count == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .contextMenu {
+                    Button(action: {
+                        Task {
+                            await deleteFolderAsync(folder)
+                        }
+                    }) {
+                        Label("Delete Folder", systemImage: "trash")
+                    }
+                    .disabled(folder.isDefault)
+                }
+            }
+        }
+    }
+    
+    private var iconsGridView: some View {
+        VStack {
+            if currentIcons.isEmpty {
+                ContentUnavailableView(
+                    "No Icons in \(selectedFolder?.name ?? "Folder")",
+                    systemImage: "square.grid.2x2",
+                    description: Text("Tap the + button to add your first icon to this folder")
+                )
+            } else {
+                TabView(selection: $currentPage) {
+                    ForEach(0..<totalPages, id: \.self) { page in
+                        LazyVGrid(columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)
+                        ], spacing: 12) {
+                            ForEach(paginatedIcons) { icon in
+                                IconView(icon: icon, onTap: {
+                                    playIconAudio(icon)
+                                }, onEdit: {
+                                    editIcon(icon)
+                                }, onDelete: {
+                                    Task {
+                                        await deleteIconAsync(icon)
+                                    }
+                                }, onMove: {
+                                    movingIcon = icon
+                                    isShowingMoveToFolder = true
+                                })
+                                .frame(width: iconSize, height: iconSize * 0.8)
+                            }
+                        }
+                        .padding(12)
+                        .tag(page)
+                    }
+                }
+                .tabViewStyle(.page)
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+            }
+        }
+    }
+    
+    private var addFolderView: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Folder Details")) {
+                    TextField("Folder Name", text: $newFolderName)
+                }
+            }
+            .navigationTitle("Add New Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isShowingAddFolder = false
+                        newFolderName = ""
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        if !newFolderName.isEmpty {
+                            Task {
+                                await addFolderAsync(newFolderName)
+                                newFolderName = ""
+                                isShowingAddFolder = false
+                            }
+                        }
+                    }
+                    .disabled(newFolderName.isEmpty)
+                }
+            }
+        }
+    }
+    
+    private var moveToFolderView: some View {
+        NavigationStack {
+            List {
+                ForEach(folders.filter { $0.id != selectedFolder?.id }) { folder in
+                    Button(action: {
+                        if let icon = movingIcon {
+                            Task {
+                                await moveIconToFolderAsync(icon, destinationFolder: folder)
+                                isShowingMoveToFolder = false
+                                movingIcon = nil
+                            }
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.blue)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(folder.name)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                
+                                Text("\(folder.icons.count) icon\(folder.icons.count == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Move to Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isShowingMoveToFolder = false
+                        movingIcon = nil
+                    }
+                }
             }
         }
     }
@@ -204,25 +406,14 @@ struct IconsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isEditing ? "Save" : "Add") {
                         if let image = selectedImage {
-                            if isEditing, let index = editingIconIndex {
-                                icons[index] = SpeakingIcon(
-                                    title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
-                                    image: image,
-                                    audioData: audioRecorder.audioData
-                                )
-                            } else {
-                                icons.append(SpeakingIcon(
-                                    title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
-                                    image: image,
-                                    audioData: audioRecorder.audioData
-                                ))
-                            }
-                            saveIcons()
-                            resetForm()
-                            if isEditing {
-                                isShowingEditIcon = false
-                            } else {
-                                isShowingAddIcon = false
+                            Task {
+                                await saveIconAsync(image: image, isEditing: isEditing)
+                                resetForm()
+                                if isEditing {
+                                    isShowingEditIcon = false
+                                } else {
+                                    isShowingAddIcon = false
+                                }
                             }
                         }
                     }
@@ -240,24 +431,7 @@ struct IconsView: View {
             }
             .onChange(of: selectedItem) { newItem in
                 Task {
-                    do {
-                        if let data = try await newItem?.loadTransferable(type: Data.self) {
-                            if let image = UIImage(data: data) {
-                                await MainActor.run {
-                                    selectedImage = image
-                                    print("Successfully loaded image from photo library")
-                                }
-                            } else {
-                                throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create image from data"])
-                            }
-                        }
-                    } catch {
-                        print("Error loading image: \(error)")
-                        await MainActor.run {
-                            errorMessage = "Failed to load image: \(error.localizedDescription)"
-                            showError = true
-                        }
-                    }
+                    await loadImageAsync(newItem)
                 }
             }
         }
@@ -265,7 +439,10 @@ struct IconsView: View {
     
     private func editIcon(_ icon: SpeakingIcon) {
         editingIcon = icon
-        editingIconIndex = icons.firstIndex(where: { $0.id == icon.id })
+        if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }),
+           let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
+            editingIconIndex = iconIndex
+        }
         isShowingEditIcon = true
     }
     
@@ -289,27 +466,65 @@ struct IconsView: View {
     }
     
     private func speak(text: String) {
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = 0.5
-        utterance.pitchMultiplier = 1.0
-        utterance.volume = 1.0
-        
-        synthesizer.speak(utterance)
+        Task.detached(priority: .userInitiated) {
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+            utterance.rate = 0.5
+            utterance.pitchMultiplier = 1.0
+            utterance.volume = 1.0
+            
+            synthesizer.speak(utterance)
+        }
     }
     
     private func deleteIcon(_ icon: SpeakingIcon) {
-        if let index = icons.firstIndex(where: { $0.id == icon.id }) {
-            icons.remove(at: index)
-            saveIcons()
+        if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }),
+           let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
+            folders[folderIndex].icons.remove(at: iconIndex)
+            saveFolders()
         }
     }
     
-    private func saveIcons() {
-        if let encoded = try? JSONEncoder().encode(icons) {
-            UserDefaults.standard.set(encoded, forKey: "SavedIcons")
-            print("Successfully saved \(icons.count) icons")
+    private func loadDataAsync() async {
+        await MainActor.run {
+            isLoading = true
         }
+        
+        // Load data on background thread
+        let (loadedFolders, loadedIcons) = await Task.detached(priority: .userInitiated) {
+            let folders = loadFolders()
+            let icons = loadIcons()
+            return (folders, icons)
+        }.value
+        
+        await MainActor.run {
+            folders = loadedFolders
+            // Migrate old icons to folder structure if needed
+            if !loadedIcons.isEmpty && folders.isEmpty {
+                let defaultFolder = Folder(name: "My Icons", icons: loadedIcons, isDefault: true)
+                folders.append(defaultFolder)
+            }
+            isLoading = false
+        }
+    }
+    
+    private func saveFolders() {
+        Task.detached(priority: .utility) {
+            if let encoded = try? JSONEncoder().encode(folders) {
+                UserDefaults.standard.set(encoded, forKey: "SavedFolders")
+                print("Successfully saved \(folders.count) folders")
+            }
+        }
+    }
+    
+    private func loadFolders() -> [Folder] {
+        if let data = UserDefaults.standard.data(forKey: "SavedFolders"),
+           let decoded = try? JSONDecoder().decode([Folder].self, from: data) {
+            print("Successfully loaded \(decoded.count) folders")
+            return decoded
+        }
+        print("No saved folders found")
+        return []
     }
     
     private func loadIcons() -> [SpeakingIcon] {
@@ -322,8 +537,137 @@ struct IconsView: View {
         return []
     }
     
+    private func moveIconToFolder(_ icon: SpeakingIcon, destinationFolder: Folder) {
+        if let sourceFolderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }),
+           let iconIndex = folders[sourceFolderIndex].icons.firstIndex(where: { $0.id == icon.id }),
+           let destFolderIndex = folders.firstIndex(where: { $0.id == destinationFolder.id }) {
+            let movedIcon = folders[sourceFolderIndex].icons.remove(at: iconIndex)
+            folders[destFolderIndex].icons.append(movedIcon)
+            saveFolders()
+        }
+    }
+    
+    private func deleteFolder(_ folder: Folder) {
+        if folder.isDefault {
+            errorMessage = "Cannot delete default folder."
+            showError = true
+            return
+        }
+        if let index = folders.firstIndex(where: { $0.id == folder.id }) {
+            folders.remove(at: index)
+            saveFolders()
+        }
+    }
+    
+    private func deleteFolderAsync(_ folder: Folder) async {
+        if folder.isDefault {
+            await MainActor.run {
+                errorMessage = "Cannot delete default folder."
+                showError = true
+            }
+            return
+        }
+        if let index = folders.firstIndex(where: { $0.id == folder.id }) {
+            await MainActor.run {
+                folders.remove(at: index)
+                saveFolders()
+            }
+        }
+    }
+    
+    private func deleteIconAsync(_ icon: SpeakingIcon) async {
+        if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }),
+           let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
+            await MainActor.run {
+                folders[folderIndex].icons.remove(at: iconIndex)
+                saveFolders()
+            }
+        }
+    }
+    
+    private func addFolderAsync(_ name: String) async {
+        let newFolder = Folder(name: name)
+        await MainActor.run {
+            folders.append(newFolder)
+            saveFolders()
+        }
+    }
+    
+    private func moveIconToFolderAsync(_ icon: SpeakingIcon, destinationFolder: Folder) async {
+        if let sourceFolderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }),
+           let iconIndex = folders[sourceFolderIndex].icons.firstIndex(where: { $0.id == icon.id }),
+           let destFolderIndex = folders.firstIndex(where: { $0.id == destinationFolder.id }) {
+            await MainActor.run {
+                let movedIcon = folders[sourceFolderIndex].icons.remove(at: iconIndex)
+                folders[destFolderIndex].icons.append(movedIcon)
+                saveFolders()
+            }
+        }
+    }
+    
+    private func loadImageAsync(_ item: PhotosPickerItem?) async {
+        do {
+            if let data = try await item?.loadTransferable(type: Data.self) {
+                // Process image on background thread
+                let processedImage = await Task.detached(priority: .userInitiated) {
+                    return UIImage(data: data)
+                }.value
+                
+                if let image = processedImage {
+                    await MainActor.run {
+                        selectedImage = image
+                        print("Successfully loaded image from photo library")
+                    }
+                } else {
+                    throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create image from data"])
+                }
+            }
+        } catch {
+            print("Error loading image: \(error)")
+            await MainActor.run {
+                errorMessage = "Failed to load image: \(error.localizedDescription)"
+                showError = true
+            }
+        }
+    }
+    
+    private func saveIconAsync(image: UIImage, isEditing: Bool) async {
+        // Process icon creation on background thread
+        let newIcon = await Task.detached(priority: .userInitiated) {
+            return SpeakingIcon(
+                title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
+                image: image,
+                audioData: audioRecorder.audioData
+            )
+        }.value
+        
+        await MainActor.run {
+            if isEditing, let index = editingIconIndex {
+                // Update existing icon in current folder
+                if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }) {
+                    folders[folderIndex].icons[index] = newIcon
+                }
+            } else {
+                // Add new icon to current folder or create default folder
+                if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }) {
+                    folders[folderIndex].icons.append(newIcon)
+                } else if !folders.isEmpty {
+                    // Add to first folder if no folder is selected
+                    folders[0].icons.append(newIcon)
+                } else {
+                    // Create default folder if no folders exist
+                    let defaultFolder = Folder(name: "My Icons", icons: [newIcon], isDefault: true)
+                    folders.append(defaultFolder)
+                }
+            }
+            
+            saveFolders()
+        }
+    }
+    
     init() {
-        _icons = State(initialValue: loadIcons())
+        // The init function is now primarily for initial loading and migration.
+        // Data loading and saving are handled by async functions.
     }
 }
 

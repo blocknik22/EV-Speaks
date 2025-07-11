@@ -21,9 +21,14 @@ struct SpeakingIcon: Identifiable, Codable {
     
     init(title: String, image: UIImage, audioData: Data? = nil) {
         self.title = title
-        self.imageData = image.jpegData(compressionQuality: 0.8) ?? Data()
+        // Process image compression on background thread
+        
+            self.imageData = image.jpegData(compressionQuality: 0.8) ?? Data()
+        
+       
         self.audioData = audioData
     }
+    
     
     static let sample = SpeakingIcon(title: "Hello", image: UIImage(systemName: "person.wave.2.fill")?.withTintColor(.blue) ?? UIImage())
 }
@@ -34,15 +39,27 @@ struct IconView: View {
     let onEdit: () -> Void
     @State private var isShowingDeleteConfirmation = false
     var onDelete: (() -> Void)?
+    var onMove: (() -> Void)?
+    
+    // Cache the processed image to avoid repeated processing
+    @State private var processedImage: UIImage?
     
     var body: some View {
         VStack(spacing: 8) {
-            Image(uiImage: icon.image)
+            Image(uiImage: processedImage ?? icon.image)
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: .infinity)
                 .frame(height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
+                .task {
+                    // Process image on background thread if not already cached
+                    if processedImage == nil {
+                        processedImage = await Task.detached(priority: .userInitiated) {
+                            return icon.image
+                        }.value
+                    }
+                }
             
             Text(icon.title)
                 .font(.callout)
@@ -66,6 +83,12 @@ struct IconView: View {
         .contextMenu {
             Button(action: onEdit) {
                 Label("Edit", systemImage: "pencil")
+            }
+            
+            if onMove != nil {
+                Button(action: onMove!) {
+                    Label("Move to Folder", systemImage: "folder")
+                }
             }
             
             Button(role: .destructive) {

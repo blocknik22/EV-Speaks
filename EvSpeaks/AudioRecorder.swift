@@ -43,9 +43,9 @@ class AudioRecorder: NSObject, ObservableObject {
     func startRecording() {
         // Request microphone permission
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] allowed in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if allowed {
-                    self?.initiateRecording()
+                    await self?.initiateRecordingAsync()
                 } else {
                     print("Microphone permission denied")
                     self?.errorMessage = "Microphone access denied. Please enable it in Settings."
@@ -54,9 +54,11 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
     
-    private func initiateRecording() {
-        // Set up audio session for recording
-        setupAudioSessionForRecording()
+    private func initiateRecordingAsync() async {
+        // Set up audio session for recording on background thread
+        await Task.detached(priority: .userInitiated) {
+            self.setupAudioSessionForRecording()
+        }.value
         
         // Remove any existing recording
         try? FileManager.default.removeItem(at: recordingURL)
@@ -74,31 +76,43 @@ class AudioRecorder: NSObject, ObservableObject {
             
             if audioRecorder?.prepareToRecord() == true {
                 audioRecorder?.record()
-                isRecording = true
+                await MainActor.run {
+                    isRecording = true
+                }
                 print("Started recording successfully")
             } else {
                 throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to prepare recording"])
             }
         } catch {
             print("Could not start recording: \(error)")
-            errorMessage = "Recording failed: \(error.localizedDescription)"
-            isRecording = false
+            await MainActor.run {
+                errorMessage = "Recording failed: \(error.localizedDescription)"
+                isRecording = false
+            }
         }
     }
     
     func stopRecording() {
         print("Stopping recording...")
         audioRecorder?.stop()
-        isRecording = false
         
-        // Load the recorded audio data
-        do {
-            audioData = try Data(contentsOf: recordingURL)
-            print("Successfully loaded audio data: \(audioData?.count ?? 0) bytes")
-        } catch {
-            print("Failed to load recorded audio data: \(error)")
-            errorMessage = "Failed to save recording: \(error.localizedDescription)"
-            audioData = nil
+        Task.detached(priority: .userInitiated) { [weak self] in
+            // Load the recorded audio data on background thread
+            do {
+                let data = try Data(contentsOf: self?.recordingURL ?? URL(fileURLWithPath: ""))
+                await MainActor.run {
+                    self?.audioData = data
+                    self?.isRecording = false
+                }
+                print("Successfully loaded audio data: \(data.count) bytes")
+            } catch {
+                print("Failed to load recorded audio data: \(error)")
+                await MainActor.run {
+                    self?.errorMessage = "Failed to save recording: \(error.localizedDescription)"
+                    self?.audioData = nil
+                    self?.isRecording = false
+                }
+            }
         }
     }
     

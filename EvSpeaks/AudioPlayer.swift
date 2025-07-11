@@ -22,27 +22,36 @@ class AudioPlayer: NSObject, ObservableObject {
     }
     
     func playAudio(data: Data) {
-        do {
-            // Stop any existing playback
-            stop()
-            
-            // Configure audio session for playback
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
-            
-            // Configure and start new playback
-            player = try AVAudioPlayer(data: data)
-            player?.delegate = self
-            player?.prepareToPlay()
-            
-            if player?.play() == true {
-                isPlaying = true
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                // Stop any existing playback
+                await MainActor.run {
+                    self?.stop()
+                }
+                
+                // Configure audio session for playback on background thread
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default)
+                try session.setActive(true)
+                
+                // Configure and start new playback
+                let newPlayer = try AVAudioPlayer(data: data)
+                newPlayer.delegate = self
+                newPlayer.prepareToPlay()
+                
+                await MainActor.run {
+                    self?.player = newPlayer
+                    if newPlayer.play() == true {
+                        self?.isPlaying = true
+                    }
+                }
                 print("Started playing audio successfully")
+            } catch {
+                print("Failed to play audio: \(error)")
+                await MainActor.run {
+                    self?.isPlaying = false
+                }
             }
-        } catch {
-            print("Failed to play audio: \(error)")
-            isPlaying = false
         }
     }
     
