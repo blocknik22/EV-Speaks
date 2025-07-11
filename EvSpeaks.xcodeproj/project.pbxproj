@@ -7,13 +7,26 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		24B05F932DE6B52400F376F6 /* Ev Speaks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ev Speaks.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		24B05F932DE6B52400F376F6 /* EvSpeaks.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EvSpeaks.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		24C79E582DE7FA7A00E9B162 /* Exceptions for "EvSpeaks" folder in "EvSpeaks" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 24B05F922DE6B52400F376F6 /* EvSpeaks */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		24B05F952DE6B52400F376F6 /* Ev Speaks */ = {
+		24B05F952DE6B52400F376F6 /* EvSpeaks */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Ev Speaks";
+			exceptions = (
+				24C79E582DE7FA7A00E9B162 /* Exceptions for "EvSpeaks" folder in "EvSpeaks" target */,
+			);
+			path = EvSpeaks;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +45,7 @@
 		24B05F8A2DE6B52400F376F6 = {
 			isa = PBXGroup;
 			children = (
-				24B05F952DE6B52400F376F6 /* Ev Speaks */,
+				24B05F952DE6B52400F376F6 /* EvSpeaks */,
 				24B05F942DE6B52400F376F6 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +53,7 @@
 		24B05F942DE6B52400F376F6 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				24B05F932DE6B52400F376F6 /* Ev Speaks.app */,
+				24B05F932DE6B52400F376F6 /* EvSpeaks.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +61,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		24B05F922DE6B52400F376F6 /* Ev Speaks */ = {
+		24B05F922DE6B52400F376F6 /* EvSpeaks */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 24B05FA12DE6B52A00F376F6 /* Build configuration list for PBXNativeTarget "Ev Speaks" */;
+			buildConfigurationList = 24B05FA12DE6B52A00F376F6 /* Build configuration list for PBXNativeTarget "EvSpeaks" */;
 			buildPhases = (
 				24B05F8F2DE6B52400F376F6 /* Sources */,
 				24B05F902DE6B52400F376F6 /* Frameworks */,
@@ -61,13 +74,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				24B05F952DE6B52400F376F6 /* Ev Speaks */,
+				24B05F952DE6B52400F376F6 /* EvSpeaks */,
 			);
-			name = "Ev Speaks";
+			name = EvSpeaks;
 			packageProductDependencies = (
 			);
 			productName = "Ev Speaks";
-			productReference = 24B05F932DE6B52400F376F6 /* Ev Speaks.app */;
+			productReference = 24B05F932DE6B52400F376F6 /* EvSpeaks.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +98,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 24B05F8E2DE6B52400F376F6 /* Build configuration list for PBXProject "Ev Speaks" */;
+			buildConfigurationList = 24B05F8E2DE6B52400F376F6 /* Build configuration list for PBXProject "EvSpeaks" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +112,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				24B05F922DE6B52400F376F6 /* Ev Speaks */,
+				24B05F922DE6B52400F376F6 /* EvSpeaks */,
 			);
 		};
 /* End PBXProject section */
@@ -252,13 +265,20 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Ev Speaks/Preview Content\"";
+				DEVELOPMENT_TEAM = 3KEC36F5RJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Ev-Speaks-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = EVSpeaks;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The app needs to access camera to take picture and select images";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "App needs microphone access to record audio";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -280,13 +300,20 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Ev Speaks/Preview Content\"";
+				DEVELOPMENT_TEAM = 3KEC36F5RJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Ev-Speaks-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = EVSpeaks;
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The app needs to access camera to take picture and select images";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "App needs microphone access to record audio";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -303,7 +330,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		24B05F8E2DE6B52400F376F6 /* Build configuration list for PBXProject "Ev Speaks" */ = {
+		24B05F8E2DE6B52400F376F6 /* Build configuration list for PBXProject "EvSpeaks" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				24B05F9F2DE6B52A00F376F6 /* Debug */,
@@ -312,7 +339,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		24B05FA12DE6B52A00F376F6 /* Build configuration list for PBXNativeTarget "Ev Speaks" */ = {
+		24B05FA12DE6B52A00F376F6 /* Build configuration list for PBXNativeTarget "EvSpeaks" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				24B05FA22DE6B52A00F376F6 /* Debug */,
