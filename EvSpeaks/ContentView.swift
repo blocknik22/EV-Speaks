@@ -16,11 +16,13 @@ struct Folder: Identifiable, Codable {
     var name: String
     var icons: [SpeakingIcon]
     var isDefault: Bool = false
+    var imageData: Data? = nil // Add image data for folder image
     
-    init(name: String, icons: [SpeakingIcon] = [], isDefault: Bool = false) {
+    init(name: String, icons: [SpeakingIcon] = [], isDefault: Bool = false, imageData: Data? = nil) {
         self.name = name
         self.icons = icons
         self.isDefault = isDefault
+        self.imageData = imageData
     }
 }
 
@@ -47,6 +49,8 @@ struct IconsView: View {
     @State private var selectedImage: UIImage?
     @State private var newIconTitle: String = ""
     @State private var newFolderName: String = ""
+    @State private var newFolderImage: UIImage? = nil // For folder image
+    @State private var newFolderImageItem: PhotosPickerItem? = nil // For folder image picker
     @State private var isShowingAddIcon = false
     @State private var isShowingEditIcon = false
     @State private var isShowingAddFolder = false
@@ -176,10 +180,17 @@ struct IconsView: View {
                     currentPage = 0
                 }) {
                     HStack {
-                        Image(systemName: "folder.fill")
-                            .foregroundColor(.blue)
-                            .font(.title2)
-                        
+                        if let imageData = folder.imageData, let uiImage = UIImage(data: imageData) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 40, height: 40)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.blue)
+                                .font(.title2)
+                        }
                         VStack(alignment: .leading, spacing: 4) {
                             Text(folder.name)
                                 .font(.headline)
@@ -257,6 +268,22 @@ struct IconsView: View {
             Form {
                 Section(header: Text("Folder Details")) {
                     TextField("Folder Name", text: $newFolderName)
+                    if let image = newFolderImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 120)
+                    }
+                    PhotosPicker(
+                        selection: $newFolderImageItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        HStack {
+                            Image(systemName: "photo.fill")
+                            Text("Choose Folder Image")
+                        }
+                    }
                 }
             }
             .navigationTitle("Add New Folder")
@@ -266,6 +293,8 @@ struct IconsView: View {
                     Button("Cancel") {
                         isShowingAddFolder = false
                         newFolderName = ""
+                        newFolderImage = nil
+                        newFolderImageItem = nil
                     }
                 }
                 
@@ -273,13 +302,20 @@ struct IconsView: View {
                     Button("Add") {
                         if !newFolderName.isEmpty {
                             Task {
-                                await addFolderAsync(newFolderName)
+                                await addFolderAsync(newFolderName, image: newFolderImage)
                                 newFolderName = ""
+                                newFolderImage = nil
+                                newFolderImageItem = nil
                                 isShowingAddFolder = false
                             }
                         }
                     }
                     .disabled(newFolderName.isEmpty)
+                }
+            }
+            .onChange(of: newFolderImageItem) { newItem in
+                Task {
+                    await loadNewFolderImageAsync(newItem)
                 }
             }
         }
@@ -585,8 +621,9 @@ struct IconsView: View {
         }
     }
     
-    private func addFolderAsync(_ name: String) async {
-        let newFolder = Folder(name: name)
+    private func addFolderAsync(_ name: String, image: UIImage? = nil) async {
+        let imageData = image?.jpegData(compressionQuality: 0.8)
+        let newFolder = Folder(name: name, imageData: imageData)
         await MainActor.run {
             folders.append(newFolder)
             saveFolders()
@@ -662,6 +699,23 @@ struct IconsView: View {
             }
             
             saveFolders()
+        }
+    }
+    
+    private func loadNewFolderImageAsync(_ item: PhotosPickerItem?) async {
+        do {
+            if let data = try await item?.loadTransferable(type: Data.self) {
+                let processedImage = await Task.detached(priority: .userInitiated) {
+                    return UIImage(data: data)
+                }.value
+                if let image = processedImage {
+                    await MainActor.run {
+                        newFolderImage = image
+                    }
+                }
+            }
+        } catch {
+            print("Error loading folder image: \(error)")
         }
     }
     
