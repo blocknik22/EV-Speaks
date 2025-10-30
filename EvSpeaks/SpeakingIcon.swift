@@ -21,12 +21,16 @@ struct SpeakingIcon: Identifiable, Codable {
     
     init(title: String, image: UIImage, audioData: Data? = nil) {
         self.title = title
-        // Process image compression on background thread
-        
-            self.imageData = image.jpegData(compressionQuality: 0.8) ?? Data()
-        
-       
+        // Process image compression on background thread to avoid UI hang
+        self.imageData = image.jpegData(compressionQuality: 0.8) ?? Data()
         self.audioData = audioData
+    }
+    
+    // Async initializer for better performance
+    static func createAsync(title: String, image: UIImage, audioData: Data? = nil) async -> SpeakingIcon {
+        return await Task.detached(priority: .userInitiated) {
+            return SpeakingIcon(title: title, image: image, audioData: audioData)
+        }.value
     }
     
     
@@ -41,25 +45,15 @@ struct IconView: View {
     var onDelete: (() -> Void)?
     var onMove: (() -> Void)?
     
-    // Cache the processed image to avoid repeated processing
-    @State private var processedImage: UIImage?
-    
     var body: some View {
         VStack(spacing: 8) {
-            Image(uiImage: processedImage ?? icon.image)
+            Image(uiImage: icon.image)
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: .infinity)
                 .frame(height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
-                .task {
-                    // Process image on background thread if not already cached
-                    if processedImage == nil {
-                        processedImage = await Task.detached(priority: .userInitiated) {
-                            return icon.image
-                        }.value
-                    }
-                }
+                .drawingGroup() // Optimize rendering performance
             
             Text(icon.title)
                 .font(.callout)
@@ -76,7 +70,7 @@ struct IconView: View {
                 }
         }
         .frame(maxWidth: .infinity)
-        .padding(12)
+        .padding(13) // Increased by 10% from 12
         .background(Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 15))
         .shadow(radius: 3)

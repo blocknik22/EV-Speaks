@@ -16,11 +16,24 @@ struct Folder: Identifiable, Codable {
     var name: String
     var icons: [SpeakingIcon]
     var isDefault: Bool = false
+    private var folderImageData: Data?
     
-    init(name: String, icons: [SpeakingIcon] = [], isDefault: Bool = false) {
+    var folderImage: UIImage? {
+        if let data = folderImageData {
+            return UIImage(data: data)
+        }
+        return nil
+    }
+    
+    init(name: String, icons: [SpeakingIcon] = [], isDefault: Bool = false, folderImage: UIImage? = nil) {
         self.name = name
         self.icons = icons
         self.isDefault = isDefault
+        self.folderImageData = folderImage?.jpegData(compressionQuality: 0.8)
+    }
+    
+    mutating func setFolderImage(_ image: UIImage?) {
+        self.folderImageData = image?.jpegData(compressionQuality: 0.8)
     }
 }
 
@@ -45,14 +58,18 @@ struct IconsView: View {
     @State private var selectedFolder: Folder?
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImage: UIImage?
+    @State private var selectedFolderItem: PhotosPickerItem?
+    @State private var selectedFolderImage: UIImage?
     @State private var newIconTitle: String = ""
     @State private var newFolderName: String = ""
     @State private var isShowingAddIcon = false
     @State private var isShowingEditIcon = false
     @State private var isShowingAddFolder = false
+    @State private var isShowingEditFolder = false
     @State private var isShowingMoveToFolder = false
     @State private var editingIcon: SpeakingIcon?
     @State private var editingIconIndex: Int?
+    @State private var editingFolder: Folder?
     @State private var movingIcon: SpeakingIcon?
     @State private var errorMessage: String?
     @State private var showError = false
@@ -68,7 +85,7 @@ struct IconsView: View {
     
     private var iconSize: CGFloat {
         // Calculate size to fit 2x3 grid with padding
-        let padding: CGFloat = 12
+        let padding: CGFloat = 16 // Increased by ~30% from 12
         let horizontalCount: CGFloat = 2
         let verticalCount: CGFloat = 3
         let availableWidth = screenWidth - (padding * (horizontalCount + 1))
@@ -154,6 +171,9 @@ struct IconsView: View {
             .sheet(isPresented: $isShowingAddFolder) {
                 addFolderView
             }
+            .sheet(isPresented: $isShowingEditFolder) {
+                editFolderView
+            }
             .sheet(isPresented: $isShowingMoveToFolder) {
                 moveToFolderView
             }
@@ -176,9 +196,19 @@ struct IconsView: View {
                     currentPage = 0
                 }) {
                     HStack {
-                        Image(systemName: "folder.fill")
-                            .foregroundColor(.blue)
-                            .font(.title2)
+                        // Show custom folder image or default icon
+                        if let folderImage = folder.folderImage {
+                            Image(uiImage: folderImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 50, height: 50)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.blue)
+                                .font(.title2)
+                                .frame(width: 50, height: 50)
+                        }
                         
                         VStack(alignment: .leading, spacing: 4) {
                             Text(folder.name)
@@ -197,7 +227,16 @@ struct IconsView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .id(folder.id) // Ensure proper view identity for performance
                 .contextMenu {
+                    Button(action: {
+                        editingFolder = folder
+                        selectedFolderImage = folder.folderImage
+                        isShowingEditFolder = true
+                    }) {
+                        Label("Edit Folder", systemImage: "pencil")
+                    }
+                    
                     Button(action: {
                         Task {
                             await deleteFolderAsync(folder)
@@ -223,9 +262,9 @@ struct IconsView: View {
                 TabView(selection: $currentPage) {
                     ForEach(0..<totalPages, id: \.self) { page in
                         LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12)
-                        ], spacing: 12) {
+                            GridItem(.flexible(), spacing: 16), // Increased by ~30% from 12
+                            GridItem(.flexible(), spacing: 16)  // Increased by ~30% from 12
+                        ], spacing: 16) { // Increased by ~30% from 12
                             ForEach(paginatedIcons) { icon in
                                 IconView(icon: icon, onTap: {
                                     playIconAudio(icon)
@@ -240,9 +279,10 @@ struct IconsView: View {
                                     isShowingMoveToFolder = true
                                 })
                                 .frame(width: iconSize, height: iconSize * 0.8)
+                                .id(icon.id) // Ensure proper view identity for performance
                             }
                         }
-                        .padding(12)
+                        .padding(16) // Increased by ~30% from 12
                         .tag(page)
                     }
                 }
@@ -257,6 +297,24 @@ struct IconsView: View {
             Form {
                 Section(header: Text("Folder Details")) {
                     TextField("Folder Name", text: $newFolderName)
+                    
+                    if let image = selectedFolderImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 200)
+                    }
+                    
+                    PhotosPicker(
+                        selection: $selectedFolderItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        HStack {
+                            Image(systemName: "photo.fill")
+                            Text(selectedFolderImage == nil ? "Choose Folder Image" : "Change Folder Image")
+                        }
+                    }
                 }
             }
             .navigationTitle("Add New Folder")
@@ -266,6 +324,8 @@ struct IconsView: View {
                     Button("Cancel") {
                         isShowingAddFolder = false
                         newFolderName = ""
+                        selectedFolderImage = nil
+                        selectedFolderItem = nil
                     }
                 }
                 
@@ -273,13 +333,88 @@ struct IconsView: View {
                     Button("Add") {
                         if !newFolderName.isEmpty {
                             Task {
-                                await addFolderAsync(newFolderName)
+                                await addFolderAsync(newFolderName, folderImage: selectedFolderImage)
                                 newFolderName = ""
+                                selectedFolderImage = nil
+                                selectedFolderItem = nil
                                 isShowingAddFolder = false
                             }
                         }
                     }
                     .disabled(newFolderName.isEmpty)
+                }
+            }
+            .onChange(of: selectedFolderItem) { newItem in
+                Task {
+                    await loadFolderImageAsync(newItem)
+                }
+            }
+        }
+    }
+    
+    private var editFolderView: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Folder Details")) {
+                    TextField("Folder Name", text: $newFolderName)
+                    
+                    if let image = selectedFolderImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 200)
+                    }
+                    
+                    PhotosPicker(
+                        selection: $selectedFolderItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        HStack {
+                            Image(systemName: "photo.fill")
+                            Text(selectedFolderImage == nil ? "Choose Folder Image" : "Change Folder Image")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Edit Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isShowingEditFolder = false
+                        editingFolder = nil
+                        newFolderName = ""
+                        selectedFolderImage = nil
+                        selectedFolderItem = nil
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if !newFolderName.isEmpty, let folder = editingFolder {
+                            Task {
+                                await updateFolderAsync(folder, newName: newFolderName, newImage: selectedFolderImage)
+                                newFolderName = ""
+                                selectedFolderImage = nil
+                                selectedFolderItem = nil
+                                editingFolder = nil
+                                isShowingEditFolder = false
+                            }
+                        }
+                    }
+                    .disabled(newFolderName.isEmpty)
+                }
+            }
+            .onAppear {
+                if let folder = editingFolder {
+                    newFolderName = folder.name
+                    selectedFolderImage = folder.folderImage
+                }
+            }
+            .onChange(of: selectedFolderItem) { newItem in
+                Task {
+                    await loadFolderImageAsync(newItem)
                 }
             }
         }
@@ -299,8 +434,19 @@ struct IconsView: View {
                         }
                     }) {
                         HStack {
-                            Image(systemName: "folder.fill")
-                                .foregroundColor(.blue)
+                            // Show custom folder image or default icon
+                            if let folderImage = folder.folderImage {
+                                Image(uiImage: folderImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 40, height: 40)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            } else {
+                                Image(systemName: "folder.fill")
+                                    .foregroundColor(.blue)
+                                    .font(.title3)
+                                    .frame(width: 40, height: 40)
+                            }
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(folder.name)
@@ -585,11 +731,47 @@ struct IconsView: View {
         }
     }
     
-    private func addFolderAsync(_ name: String) async {
-        let newFolder = Folder(name: name)
+    private func addFolderAsync(_ name: String, folderImage: UIImage? = nil) async {
+        let newFolder = Folder(name: name, folderImage: folderImage)
         await MainActor.run {
             folders.append(newFolder)
             saveFolders()
+        }
+    }
+    
+    private func updateFolderAsync(_ folder: Folder, newName: String, newImage: UIImage?) async {
+        if let index = folders.firstIndex(where: { $0.id == folder.id }) {
+            await MainActor.run {
+                folders[index].name = newName
+                folders[index].setFolderImage(newImage)
+                saveFolders()
+            }
+        }
+    }
+    
+    private func loadFolderImageAsync(_ item: PhotosPickerItem?) async {
+        do {
+            if let data = try await item?.loadTransferable(type: Data.self) {
+                // Process image on background thread
+                let processedImage = await Task.detached(priority: .userInitiated) {
+                    return UIImage(data: data)
+                }.value
+                
+                if let image = processedImage {
+                    await MainActor.run {
+                        selectedFolderImage = image
+                        print("Successfully loaded folder image from photo library")
+                    }
+                } else {
+                    throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not create image from data"])
+                }
+            }
+        } catch {
+            print("Error loading folder image: \(error)")
+            await MainActor.run {
+                errorMessage = "Failed to load folder image: \(error.localizedDescription)"
+                showError = true
+            }
         }
     }
     
@@ -632,14 +814,12 @@ struct IconsView: View {
     }
     
     private func saveIconAsync(image: UIImage, isEditing: Bool) async {
-        // Process icon creation on background thread
-        let newIcon = await Task.detached(priority: .userInitiated) {
-            return SpeakingIcon(
-                title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
-                image: image,
-                audioData: audioRecorder.audioData
-            )
-        }.value
+        // Process icon creation on background thread using async initializer
+        let newIcon = await SpeakingIcon.createAsync(
+            title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
+            image: image,
+            audioData: audioRecorder.audioData
+        )
         
         await MainActor.run {
             if isEditing, let index = editingIconIndex {
