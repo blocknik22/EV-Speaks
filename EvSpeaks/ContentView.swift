@@ -81,6 +81,7 @@ struct IconsView: View {
     private let synthesizer = AVSpeechSynthesizer()
     
     private let iconsPerPage = 6
+    private let quickAccessIconsPerPage = 4 // Quick Access shows 4 icons at a time (2x2 grid)
     private let screenWidth = UIScreen.main.bounds.width
     private let screenHeight = UIScreen.main.bounds.height
     private let gridSpacing: CGFloat = max(10, 40) // Minimum 10dp spacing between grid items (currently 16dp)
@@ -118,12 +119,19 @@ struct IconsView: View {
     }
     
     private var quickAccessPages: Int {
-        (quickAccessIcons.count + iconsPerPage - 1) / iconsPerPage
+        (quickAccessIcons.count + quickAccessIconsPerPage - 1) / quickAccessIconsPerPage
     }
     
     private var paginatedQuickAccessIcons: [SpeakingIcon] {
-        let startIndex = quickAccessPage * iconsPerPage
-        let endIndex = min(startIndex + iconsPerPage, quickAccessIcons.count)
+        let startIndex = quickAccessPage * quickAccessIconsPerPage
+        let endIndex = min(startIndex + quickAccessIconsPerPage, quickAccessIcons.count)
+        return Array(quickAccessIcons[startIndex..<endIndex])
+    }
+    
+    private func quickAccessIconsForPage(_ page: Int) -> [SpeakingIcon] {
+        let startIndex = page * quickAccessIconsPerPage
+        let endIndex = min(startIndex + quickAccessIconsPerPage, quickAccessIcons.count)
+        guard startIndex < quickAccessIcons.count else { return [] }
         return Array(quickAccessIcons[startIndex..<endIndex])
     }
     
@@ -269,7 +277,7 @@ struct IconsView: View {
     private var homePageView: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Quick Access Panel
+                // Quick Access Panel - Limited to half screen height
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Label("Quick Access", systemImage: "star.fill")
@@ -279,6 +287,7 @@ struct IconsView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 16)
+                    .padding(.top, 30) // Bring down title by 30 dp
                     
                     if quickAccessIcons.isEmpty {
                         ContentUnavailableView(
@@ -286,55 +295,58 @@ struct IconsView: View {
                             systemImage: "star",
                             description: Text("Add icons to Quick Access from any folder")
                         )
-                        .frame(height: 200)
+                        .frame(height: screenHeight * 0.25 - 80) // Reduced by 40 dp top and bottom
                     } else {
-                        TabView(selection: $quickAccessPage) {
-                            ForEach(0..<quickAccessPages, id: \.self) { page in
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible(), spacing: gridSpacing),
-                                    GridItem(.flexible(), spacing: gridSpacing)
-                                ], spacing: gridSpacing) {
-                                    ForEach(paginatedQuickAccessIcons) { icon in
-                                        IconView(
-                                            icon: icon,
-                                            onTap: {
-                                                playIconAudio(icon)
-                                            },
-                                            onEdit: {
-                                                editIcon(icon)
-                                            },
-                                            onDelete: {
-                                                Task {
-                                                    await deleteIconAsync(icon)
+                        // Horizontal scrollable view showing 4 icons at a time (2x2 grid)
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            HStack(spacing: 0) {
+                                ForEach(0..<quickAccessPages, id: \.self) { page in
+                                    LazyVGrid(columns: [
+                                        GridItem(.flexible(), spacing: gridSpacing),
+                                        GridItem(.flexible(), spacing: gridSpacing)
+                                    ], spacing: gridSpacing) {
+                                        ForEach(quickAccessIconsForPage(page)) { icon in
+                                            IconView(
+                                                icon: icon,
+                                                onTap: {
+                                                    playIconAudio(icon)
+                                                },
+                                                onEdit: {
+                                                    editIcon(icon)
+                                                },
+                                                onDelete: {
+                                                    Task {
+                                                        await deleteIconAsync(icon)
+                                                    }
+                                                },
+                                                onMove: {
+                                                    movingIcon = icon
+                                                    isShowingMoveToFolder = true
+                                                },
+                                                onToggleQuickAccess: {
+                                                    Task {
+                                                        await toggleQuickAccessAsync(icon)
+                                                    }
                                                 }
-                                            },
-                                            onMove: {
-                                                movingIcon = icon
-                                                isShowingMoveToFolder = true
-                                            },
-                                            onToggleQuickAccess: {
-                                                Task {
-                                                    await toggleQuickAccessAsync(icon)
-                                                }
-                                            }
-                                        )
-                                        .frame(width: iconSize, height: iconSize * 0.8)
-                                        .id(icon.id)
+                                            )
+                                            .frame(width: iconSize, height: iconSize * 0.8)
+                                            .id(icon.id)
+                                        }
                                     }
+                                    .padding(16)
+                                    .frame(width: screenWidth - 32)
                                 }
-                                .padding(16)
-                                .tag(page)
                             }
                         }
-                        .tabViewStyle(.page)
-                        .indexViewStyle(.page(backgroundDisplayMode: .always))
-                        .frame(height: CGFloat(min(quickAccessIcons.count, iconsPerPage)) * (iconSize * 0.8 + gridSpacing) + 120)
+                        .frame(height: screenHeight * 0.5 - 80) // Reduced by 40 dp top and bottom
                     }
                 }
-                .padding(.vertical, 16)
+                .padding(.top, -24) // Reduced top padding by 40 dp (from 16 to -24)
+                .padding(.bottom, -24) // Reduced bottom padding by 40 dp (from 16 to -24)
                 .background(Color.gray.opacity(0.05))
                 .cornerRadius(12)
                 .padding(.horizontal, 16)
+                .frame(maxHeight: screenHeight * 0.5 - 80) // Reduced by 40 dp top and bottom
                 
                 // Folders Panel
                 VStack(alignment: .leading, spacing: 12) {
@@ -903,10 +915,37 @@ struct IconsView: View {
     }
     
     private func deleteIconAsync(_ icon: SpeakingIcon) async {
-        if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }),
-           let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
+        // Find the icon in all folders (works from both folder view and Quick Access)
+        var foundFolderIndex: Int?
+        var foundIconIndex: Int?
+        
+        for folderIndex in folders.indices {
+            if let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
+                foundFolderIndex = folderIndex
+                foundIconIndex = iconIndex
+                break
+            }
+        }
+        
+        if let folderIndex = foundFolderIndex, let iconIndex = foundIconIndex {
             await MainActor.run {
-                folders[folderIndex].icons.remove(at: iconIndex)
+                // Remove icon immediately by creating updated folder
+                var updatedFolder = folders[folderIndex]
+                updatedFolder.icons.remove(at: iconIndex)
+                folders[folderIndex] = updatedFolder
+                
+                // Refresh selectedFolder to trigger view update if deleting from selected folder
+                if let currentSelectedFolder = selectedFolder, folders[folderIndex].id == currentSelectedFolder.id {
+                    self.selectedFolder = updatedFolder
+                    // Adjust page if we deleted the last icon on the current page
+                    let iconCount = updatedFolder.icons.count
+                    let newTotalPages = (iconCount + iconsPerPage - 1) / iconsPerPage
+                    if newTotalPages > 0 && currentPage >= newTotalPages {
+                        currentPage = max(0, newTotalPages - 1)
+                    }
+                }
+                
+                // Save in background without blocking UI
                 saveFolders()
             }
         }
@@ -963,6 +1002,18 @@ struct IconsView: View {
             await MainActor.run {
                 let movedIcon = folders[sourceFolderIndex].icons.remove(at: iconIndex)
                 folders[destFolderIndex].icons.append(movedIcon)
+                
+                // Refresh selectedFolder to trigger view update
+                if let currentSelectedFolder = selectedFolder, folders[sourceFolderIndex].id == currentSelectedFolder.id {
+                    self.selectedFolder = folders[sourceFolderIndex]
+                    // Adjust page if we moved the last icon on the current page
+                    let iconCount = folders[sourceFolderIndex].icons.count
+                    let newTotalPages = (iconCount + iconsPerPage - 1) / iconsPerPage
+                    if newTotalPages > 0 && currentPage >= newTotalPages {
+                        currentPage = max(0, newTotalPages - 1)
+                    }
+                }
+                
                 saveFolders()
             }
         }
@@ -974,6 +1025,12 @@ struct IconsView: View {
             if let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
                 await MainActor.run {
                     folders[folderIndex].icons[iconIndex].isQuickAccess.toggle()
+                    
+                    // Refresh selectedFolder to trigger view update if toggling from selected folder
+                    if let currentSelectedFolder = selectedFolder, folders[folderIndex].id == currentSelectedFolder.id {
+                        self.selectedFolder = folders[folderIndex]
+                    }
+                    
                     saveFolders()
                 }
                 break
@@ -1008,26 +1065,41 @@ struct IconsView: View {
     }
     
     private func saveIconAsync(image: UIImage, isEditing: Bool) async {
-        // Process icon creation on background thread using async initializer
+        // Create icon on background thread first
         let newIcon = await SpeakingIcon.createAsync(
             title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
             image: image,
             audioData: audioRecorder.audioData
         )
         
+        // Update UI immediately on main thread
         await MainActor.run {
             if isEditing, let index = editingIconIndex {
                 // Update existing icon in current folder
                 if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }) {
-                    folders[folderIndex].icons[index] = newIcon
+                    var updatedFolder = folders[folderIndex]
+                    updatedFolder.icons[index] = newIcon
+                    folders[folderIndex] = updatedFolder
+                    // Refresh selectedFolder to trigger view update
+                    selectedFolder = updatedFolder
                 }
             } else {
                 // Add new icon to current folder or create default folder
                 if let folderIndex = folders.firstIndex(where: { $0.id == selectedFolder?.id }) {
-                    folders[folderIndex].icons.append(newIcon)
+                    var updatedFolder = folders[folderIndex]
+                    updatedFolder.icons.append(newIcon)
+                    folders[folderIndex] = updatedFolder
+                    // Refresh selectedFolder to trigger view update immediately
+                    selectedFolder = updatedFolder
+                    // Calculate new total pages and navigate to last page to show the newly added icon
+                    let iconCount = updatedFolder.icons.count
+                    let newTotalPages = (iconCount + iconsPerPage - 1) / iconsPerPage
+                    currentPage = max(0, newTotalPages - 1)
                 } else if !folders.isEmpty {
                     // Add to first folder if no folder is selected
-                    folders[0].icons.append(newIcon)
+                    var updatedFolder = folders[0]
+                    updatedFolder.icons.append(newIcon)
+                    folders[0] = updatedFolder
                 } else {
                     // Create default folder if no folders exist
                     let defaultFolder = Folder(name: "My Icons", icons: [newIcon], isDefault: true)
@@ -1035,6 +1107,7 @@ struct IconsView: View {
                 }
             }
             
+            // Save in background without blocking UI
             saveFolders()
         }
     }
