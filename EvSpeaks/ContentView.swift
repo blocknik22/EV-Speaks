@@ -356,10 +356,12 @@ struct IconsView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(.primary)
                         Spacer()
+                        EditButton()
+                            .font(.subheadline)
                     }
                     .padding(.horizontal, 16)
                     
-                    VStack(spacing: 8) {
+                    List {
                         ForEach(folders) { folder in
                             Button(action: {
                                 selectedFolder = folder
@@ -400,6 +402,7 @@ struct IconsView: View {
                                 .background(Color.gray.opacity(0.1))
                                 .cornerRadius(8)
                             }
+                            .buttonStyle(PlainButtonStyle())
                             .id(folder.id)
                             .contextMenu {
                                 Button(action: {
@@ -420,8 +423,11 @@ struct IconsView: View {
                                 .disabled(folder.isDefault)
                             }
                         }
+                        .onMove(perform: moveFolders)
                     }
-                    .padding(.horizontal, 16)
+                    .listStyle(PlainListStyle())
+                    .scrollContentBackground(.hidden)
+                    .frame(height: CGFloat(folders.count * 70) + 20) // Dynamic height based on folder count
                 }
                 .padding(.vertical, 16)
                 .background(Color.gray.opacity(0.05))
@@ -948,6 +954,17 @@ struct IconsView: View {
                 // Save in background without blocking UI
                 saveFolders()
             }
+        }
+    }
+    
+    private func moveFolders(from source: IndexSet, to destination: Int) {
+        folders.move(fromOffsets: source, toOffset: destination)
+        saveFolders()
+        
+        // Update selectedFolder if it was moved
+        if let currentSelectedFolder = selectedFolder,
+           let newIndex = folders.firstIndex(where: { $0.id == currentSelectedFolder.id }) {
+            selectedFolder = folders[newIndex]
         }
     }
     
