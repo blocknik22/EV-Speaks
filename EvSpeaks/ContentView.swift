@@ -74,6 +74,7 @@ struct IconsView: View {
     @State private var errorMessage: String?
     @State private var showError = false
     @State private var currentPage = 0
+    @State private var quickAccessPage = 0
     @State private var isLoading = false
     @StateObject private var audioRecorder = AudioRecorder()
     @StateObject private var audioPlayer = AudioPlayer()
@@ -102,6 +103,10 @@ struct IconsView: View {
         selectedFolder?.icons ?? []
     }
     
+    private var quickAccessIcons: [SpeakingIcon] {
+        folders.flatMap { $0.icons }.filter { $0.isQuickAccess }
+    }
+    
     private var totalPages: Int {
         (currentIcons.count + iconsPerPage - 1) / iconsPerPage
     }
@@ -110,6 +115,16 @@ struct IconsView: View {
         let startIndex = currentPage * iconsPerPage
         let endIndex = min(startIndex + iconsPerPage, currentIcons.count)
         return Array(currentIcons[startIndex..<endIndex])
+    }
+    
+    private var quickAccessPages: Int {
+        (quickAccessIcons.count + iconsPerPage - 1) / iconsPerPage
+    }
+    
+    private var paginatedQuickAccessIcons: [SpeakingIcon] {
+        let startIndex = quickAccessPage * iconsPerPage
+        let endIndex = min(startIndex + iconsPerPage, quickAccessIcons.count)
+        return Array(quickAccessIcons[startIndex..<endIndex])
     }
     
     var body: some View {
@@ -125,8 +140,8 @@ struct IconsView: View {
                         description: Text("Tap the + button to add your first icon")
                     )
                 } else if selectedFolder == nil {
-                    // Show folder list
-                    folderListView
+                    // Show home page with two panels
+                    homePageView
                 } else {
                     // Show icons in selected folder
                     iconsGridView
@@ -251,6 +266,160 @@ struct IconsView: View {
         }
     }
     
+    private var homePageView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Quick Access Panel
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("Quick Access", systemImage: "star.fill")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    
+                    if quickAccessIcons.isEmpty {
+                        ContentUnavailableView(
+                            "No Quick Access Icons",
+                            systemImage: "star",
+                            description: Text("Add icons to Quick Access from any folder")
+                        )
+                        .frame(height: 200)
+                    } else {
+                        TabView(selection: $quickAccessPage) {
+                            ForEach(0..<quickAccessPages, id: \.self) { page in
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: gridSpacing),
+                                    GridItem(.flexible(), spacing: gridSpacing)
+                                ], spacing: gridSpacing) {
+                                    ForEach(paginatedQuickAccessIcons) { icon in
+                                        IconView(
+                                            icon: icon,
+                                            onTap: {
+                                                playIconAudio(icon)
+                                            },
+                                            onEdit: {
+                                                editIcon(icon)
+                                            },
+                                            onDelete: {
+                                                Task {
+                                                    await deleteIconAsync(icon)
+                                                }
+                                            },
+                                            onMove: {
+                                                movingIcon = icon
+                                                isShowingMoveToFolder = true
+                                            },
+                                            onToggleQuickAccess: {
+                                                Task {
+                                                    await toggleQuickAccessAsync(icon)
+                                                }
+                                            }
+                                        )
+                                        .frame(width: iconSize, height: iconSize * 0.8)
+                                        .id(icon.id)
+                                    }
+                                }
+                                .padding(16)
+                                .tag(page)
+                            }
+                        }
+                        .tabViewStyle(.page)
+                        .indexViewStyle(.page(backgroundDisplayMode: .always))
+                        .frame(height: CGFloat(min(quickAccessIcons.count, iconsPerPage)) * (iconSize * 0.8 + gridSpacing) + 120)
+                    }
+                }
+                .padding(.vertical, 16)
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+                
+                // Folders Panel
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("All Folders", systemImage: "folder.fill")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    
+                    VStack(spacing: 8) {
+                        ForEach(folders) { folder in
+                            Button(action: {
+                                selectedFolder = folder
+                                currentPage = 0
+                            }) {
+                                HStack {
+                                    // Show custom folder image or default icon
+                                    if let folderImage = folder.folderImage {
+                                        Image(uiImage: folderImage)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 50, height: 50)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    } else {
+                                        Image(systemName: "folder.fill")
+                                            .foregroundColor(.blue)
+                                            .font(.title2)
+                                            .frame(width: 50, height: 50)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(folder.name)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        
+                                        Text("\(folder.icons.count) icon\(folder.icons.count == 1 ? "" : "s")")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "chevron.right")
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            .id(folder.id)
+                            .contextMenu {
+                                Button(action: {
+                                    editingFolder = folder
+                                    selectedFolderImage = folder.folderImage
+                                    isShowingEditFolder = true
+                                }) {
+                                    Label("Edit Folder", systemImage: "pencil")
+                                }
+                                
+                                Button(action: {
+                                    Task {
+                                        await deleteFolderAsync(folder)
+                                    }
+                                }) {
+                                    Label("Delete Folder", systemImage: "trash")
+                                }
+                                .disabled(folder.isDefault)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.vertical, 16)
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+            }
+            .padding(.vertical, 8)
+        }
+    }
+    
     private var iconsGridView: some View {
         VStack {
             if currentIcons.isEmpty {
@@ -267,18 +436,29 @@ struct IconsView: View {
                             GridItem(.flexible(), spacing: gridSpacing)  // Minimum 10dp spacing between grid columns
                         ], spacing: gridSpacing) { // Minimum 10dp spacing between grid rows
                             ForEach(paginatedIcons) { icon in
-                                IconView(icon: icon, onTap: {
-                                    playIconAudio(icon)
-                                }, onEdit: {
-                                    editIcon(icon)
-                                }, onDelete: {
-                                    Task {
-                                        await deleteIconAsync(icon)
+                                IconView(
+                                    icon: icon,
+                                    onTap: {
+                                        playIconAudio(icon)
+                                    },
+                                    onEdit: {
+                                        editIcon(icon)
+                                    },
+                                    onDelete: {
+                                        Task {
+                                            await deleteIconAsync(icon)
+                                        }
+                                    },
+                                    onMove: {
+                                        movingIcon = icon
+                                        isShowingMoveToFolder = true
+                                    },
+                                    onToggleQuickAccess: {
+                                        Task {
+                                            await toggleQuickAccessAsync(icon)
+                                        }
                                     }
-                                }, onMove: {
-                                    movingIcon = icon
-                                    isShowingMoveToFolder = true
-                                })
+                                )
                                 .frame(width: iconSize, height: iconSize * 0.8)
                                 .id(icon.id) // Ensure proper view identity for performance
                             }
@@ -784,6 +964,19 @@ struct IconsView: View {
                 let movedIcon = folders[sourceFolderIndex].icons.remove(at: iconIndex)
                 folders[destFolderIndex].icons.append(movedIcon)
                 saveFolders()
+            }
+        }
+    }
+    
+    private func toggleQuickAccessAsync(_ icon: SpeakingIcon) async {
+        // Find the icon in all folders and toggle its quick access status
+        for folderIndex in folders.indices {
+            if let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
+                await MainActor.run {
+                    folders[folderIndex].icons[iconIndex].isQuickAccess.toggle()
+                    saveFolders()
+                }
+                break
             }
         }
     }

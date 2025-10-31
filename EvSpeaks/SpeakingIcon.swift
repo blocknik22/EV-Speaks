@@ -6,6 +6,7 @@ struct SpeakingIcon: Identifiable, Codable {
     var title: String
     private var imageData: Data
     private var audioData: Data?
+    var isQuickAccess: Bool = false
     
     var image: UIImage {
         UIImage(data: imageData) ?? UIImage()
@@ -19,17 +20,18 @@ struct SpeakingIcon: Identifiable, Codable {
         audioData
     }
     
-    init(title: String, image: UIImage, audioData: Data? = nil) {
+    init(title: String, image: UIImage, audioData: Data? = nil, isQuickAccess: Bool = false) {
         self.title = title
         // Process image compression on background thread to avoid UI hang
         self.imageData = image.jpegData(compressionQuality: 0.8) ?? Data()
         self.audioData = audioData
+        self.isQuickAccess = isQuickAccess
     }
     
     // Async initializer for better performance
-    static func createAsync(title: String, image: UIImage, audioData: Data? = nil) async -> SpeakingIcon {
+    static func createAsync(title: String, image: UIImage, audioData: Data? = nil, isQuickAccess: Bool = false) async -> SpeakingIcon {
         return await Task.detached(priority: .userInitiated) {
-            return SpeakingIcon(title: title, image: image, audioData: audioData)
+            return SpeakingIcon(title: title, image: image, audioData: audioData, isQuickAccess: isQuickAccess)
         }.value
     }
     
@@ -44,6 +46,7 @@ struct IconView: View {
     @State private var isShowingDeleteConfirmation = false
     var onDelete: (() -> Void)?
     var onMove: (() -> Void)?
+    var onToggleQuickAccess: (() -> Void)?
     
     var body: some View {
         VStack(spacing: 8) {
@@ -61,12 +64,19 @@ struct IconView: View {
                 .multilineTextAlignment(.center)
                 .frame(height: 40)
                 .overlay(alignment: .topTrailing) {
-                    if icon.hasCustomAudio {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .foregroundStyle(.blue)
-                            .font(.system(size: 16))
-                            .offset(x: 8, y: -8)
+                    HStack(spacing: 4) {
+                        if icon.isQuickAccess {
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(.yellow)
+                                .font(.system(size: 16))
+                        }
+                        if icon.hasCustomAudio {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .foregroundStyle(.blue)
+                                .font(.system(size: 16))
+                        }
                     }
+                    .offset(x: -8, y: -8)
                 }
         }
         .frame(maxWidth: .infinity)
@@ -77,6 +87,15 @@ struct IconView: View {
         .contextMenu {
             Button(action: onEdit) {
                 Label("Edit", systemImage: "pencil")
+            }
+            
+            if onToggleQuickAccess != nil {
+                Button(action: onToggleQuickAccess!) {
+                    Label(
+                        icon.isQuickAccess ? "Remove from Quick Access" : "Add to Quick Access",
+                        systemImage: icon.isQuickAccess ? "star.slash" : "star.fill"
+                    )
+                }
             }
             
             if onMove != nil {
