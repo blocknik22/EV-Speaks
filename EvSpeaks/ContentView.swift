@@ -82,6 +82,7 @@ struct IconsView: View {
     private let iconsPerPage = 6
     private let screenWidth = UIScreen.main.bounds.width
     private let screenHeight = UIScreen.main.bounds.height
+    private let gridSpacing: CGFloat = max(10, 40) // Minimum 10dp spacing between grid items (currently 16dp)
     
     private var iconSize: CGFloat {
         // Calculate size to fit 2x3 grid with padding
@@ -262,9 +263,9 @@ struct IconsView: View {
                 TabView(selection: $currentPage) {
                     ForEach(0..<totalPages, id: \.self) { page in
                         LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 16), // Increased by ~30% from 12
-                            GridItem(.flexible(), spacing: 16)  // Increased by ~30% from 12
-                        ], spacing: 16) { // Increased by ~30% from 12
+                            GridItem(.flexible(), spacing: gridSpacing), // Minimum 10dp spacing between grid columns
+                            GridItem(.flexible(), spacing: gridSpacing)  // Minimum 10dp spacing between grid columns
+                        ], spacing: gridSpacing) { // Minimum 10dp spacing between grid rows
                             ForEach(paginatedIcons) { icon in
                                 IconView(icon: icon, onTap: {
                                     playIconAudio(icon)
