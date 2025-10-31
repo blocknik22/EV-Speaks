@@ -58,6 +58,8 @@ struct IconsView: View {
     @State private var selectedFolder: Folder?
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImage: UIImage?
+    @State private var originalImage: UIImage? // Store original image for rotation
+    @State private var imageRotationAngle: CGFloat = 0 // Track rotation angle
     @State private var selectedFolderItem: PhotosPickerItem?
     @State private var selectedFolderImage: UIImage?
     @State private var newIconTitle: String = ""
@@ -686,6 +688,31 @@ struct IconsView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(maxHeight: 200)
+                        
+                        // Rotation controls
+                        HStack(spacing: 20) {
+                            Button(action: {
+                                rotateImageClockwise()
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.clockwise")
+                                    Text("Rotate Clockwise")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            
+                            Button(action: {
+                                rotateImageCounterClockwise()
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.counterclockwise")
+                                    Text("Rotate Counter-Clockwise")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
                     
                     PhotosPicker(
@@ -768,7 +795,10 @@ struct IconsView: View {
             .onAppear {
                 if isEditing, let icon = editingIcon {
                     newIconTitle = icon.title
-                    selectedImage = icon.image
+                    let iconImage = icon.image
+                    originalImage = iconImage // Store original for rotation
+                    selectedImage = iconImage
+                    imageRotationAngle = 0 // Reset rotation when editing starts
                     if let audioData = icon.getAudioData() {
                         audioRecorder.audioData = audioData
                     }
@@ -795,9 +825,59 @@ struct IconsView: View {
         newIconTitle = ""
         selectedItem = nil
         selectedImage = nil
+        originalImage = nil
+        imageRotationAngle = 0
         audioRecorder.audioData = nil
         editingIcon = nil
         editingIconIndex = nil
+    }
+    
+    private func rotateImageClockwise() {
+        imageRotationAngle += 90
+        if let original = originalImage {
+            selectedImage = rotateUIImage(original, by: imageRotationAngle)
+        }
+    }
+    
+    private func rotateImageCounterClockwise() {
+        imageRotationAngle -= 90
+        if let original = originalImage {
+            selectedImage = rotateUIImage(original, by: imageRotationAngle)
+        }
+    }
+    
+    private func rotateUIImage(_ image: UIImage, by degrees: CGFloat) -> UIImage {
+        // Normalize angle to 0-360 range
+        let normalizedAngle = degrees.truncatingRemainder(dividingBy: 360)
+        let radians = normalizedAngle * .pi / 180
+        
+        // Calculate new size
+        let size = image.size
+        let rotatedRect = CGRect(origin: .zero, size: size)
+            .applying(CGAffineTransform(rotationAngle: radians))
+        let newSize = CGSize(
+            width: abs(rotatedRect.width),
+            height: abs(rotatedRect.height)
+        )
+        
+        // Create graphics context
+        UIGraphicsBeginImageContextWithOptions(newSize, false, image.scale)
+        guard let context = UIGraphicsGetCurrentContext() else {
+            return image
+        }
+        
+        // Move to center
+        context.translateBy(x: newSize.width / 2, y: newSize.height / 2)
+        // Rotate
+        context.rotate(by: radians)
+        // Draw image
+        context.translateBy(x: -size.width / 2, y: -size.height / 2)
+        image.draw(in: CGRect(origin: .zero, size: size))
+        
+        let rotatedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return rotatedImage ?? image
     }
     
     private func playIconAudio(_ icon: SpeakingIcon) {
@@ -1065,7 +1145,9 @@ struct IconsView: View {
                 
                 if let image = processedImage {
                     await MainActor.run {
+                        originalImage = image // Store original for rotation
                         selectedImage = image
+                        imageRotationAngle = 0 // Reset rotation when new image is loaded
                         print("Successfully loaded image from photo library")
                     }
                 } else {
