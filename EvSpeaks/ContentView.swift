@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import PhotosUI
+import UniformTypeIdentifiers
 
 // MARK: - Data Models
 
@@ -75,11 +76,19 @@ struct IconsView: View {
     @State private var movingIcon: SpeakingIcon?
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var showSuccessAlert = false
+    @State private var successMessage: String?
     @State private var currentPage = 0
     @State private var quickAccessPage = 0
     @State private var isLoading = false
+    @State private var isShowingDocumentPicker = false
     @StateObject private var audioRecorder = AudioRecorder()
     @StateObject private var audioPlayer = AudioPlayer()
+    @StateObject private var excelImporter = ExcelIconImporter()
+    @StateObject private var openSymbolsService = OpenSymbolsService()
+    @State private var searchQuery: String = ""
+    @State private var isShowingSearchResults = false
+    @FocusState private var isTitleFieldFocused: Bool
     private let synthesizer = AVSpeechSynthesizer()
     
     private let iconsPerPage = 6
@@ -181,6 +190,12 @@ struct IconsView: View {
                         }) {
                             Label("Add Folder", systemImage: "folder.badge.plus")
                         }
+                        
+                        Button(action: {
+                            isShowingDocumentPicker = true
+                        }) {
+                            Label("Import from Excel", systemImage: "square.and.arrow.down")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -188,6 +203,7 @@ struct IconsView: View {
             }
             .sheet(isPresented: $isShowingAddIcon) {
                 addIconView(isEditing: false)
+                    .interactiveDismissDisabled(false)
             }
             .sheet(isPresented: $isShowingEditIcon) {
                 if let icon = editingIcon {
@@ -208,8 +224,35 @@ struct IconsView: View {
             } message: { error in
                 Text(error)
             }
+            .alert("Import successful", isPresented: $showSuccessAlert, presenting: successMessage) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
+            .fileImporter(
+                isPresented: $isShowingDocumentPicker,
+                allowedContentTypes: [.spreadsheet, UTType(filenameExtension: "xlsx")!],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first {
+                        Task {
+                            await importIconsFromExcel(url: url)
+                        }
+                    }
+                case .failure(let error):
+                    errorMessage = "Failed to select file: \(error.localizedDescription)"
+                    showError = true
+                }
+            }
+            .sheet(isPresented: $excelImporter.isImporting) {
+                importProgressView
+            }
             .task {
                 await loadDataAsync()
+                // Auto-import from Excel file on app launch
+                await tryAutoImportFromExcel()
             }
         }
     }
@@ -682,6 +725,9 @@ struct IconsView: View {
             Form {
                 Section(header: Text("Icon Details")) {
                     TextField("Icon Title", text: $newIconTitle)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($isTitleFieldFocused)
                     
                     if let image = selectedImage {
                         Image(uiImage: image)
@@ -727,34 +773,132 @@ struct IconsView: View {
                     }
                 }
                 
-                Section(header: Text("Audio")) {
-                    HStack {
-                        if audioRecorder.isRecording {
+                // Search Images section - only show when creating (not editing)
+                if !isEditing {
+                    Section(header: Text("Search Images")) {
+                        HStack {
+                            TextField("Search for symbols...", text: $searchQuery)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit {
+                                    Task {
+                                        await searchSymbols()
+                                    }
+                                }
+                            
                             Button(action: {
-                                print("Stopping recording")
-                                audioRecorder.stopRecording()
+                                Task {
+                                    await searchSymbols()
+                                }
                             }) {
-                                Label("Stop Recording", systemImage: "stop.circle.fill")
-                                    .foregroundColor(.red)
+                                if openSymbolsService.isSearching {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "magnifyingglass")
+                                }
                             }
-                        } else {
-                            Button(action: {
-                                print("Starting recording")
-                                audioRecorder.startRecording()
-                            }) {
-                                Label("Record Audio", systemImage: "record.circle")
+                            .disabled(openSymbolsService.isSearching || searchQuery.isEmpty)
+                        }
+                        
+                        if !openSymbolsService.searchResults.isEmpty {
+                            ScrollView {
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible()),
+                                    GridItem(.flexible())
+                                ], spacing: 16) {
+                                    ForEach(openSymbolsService.searchResults) { result in
+                                        Button(action: {
+                                            Task {
+                                                await selectSymbolImage(from: result)
+                                            }
+                                        }) {
+                                            AsyncImage(url: URL(string: result.image_url)) { phase in
+                                                switch phase {
+                                                case .empty:
+                                                    ProgressView()
+                                                        .frame(width: 80, height: 80)
+                                                case .success(let image):
+                                                    image
+                                                        .resizable()
+                                                        .scaledToFit()
+                                                        .frame(width: 80, height: 80)
+                                                        .background(Color.gray.opacity(0.1))
+                                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                case .failure:
+                                                    Image(systemName: "photo")
+                                                        .frame(width: 80, height: 80)
+                                                        .foregroundColor(.gray)
+                                                @unknown default:
+                                                    EmptyView()
+                                                }
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding()
+                            }
+                            .frame(maxHeight: 300)
+                        } else if !searchQuery.isEmpty && !openSymbolsService.isSearching {
+                            Text("No results found")
+                                .foregroundColor(.gray)
+                                .font(.caption)
+                        }
+                        
+                        if let error = openSymbolsService.errorMessage {
+                            Text(error)
+                                .foregroundColor(.red)
+                                .font(.caption)
+                        }
+                    }
+                }
+                
+                Section(header: Text("Audio")) {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 16) {
+                            if audioRecorder.isRecording {
+                                Button(action: {
+                                    print("Stopping recording")
+                                    audioRecorder.stopRecording()
+                                }) {
+                                    Label("Stop Recording", systemImage: "stop.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                            } else {
+                                Button(action: {
+                                    print("Starting recording")
+                                    audioRecorder.startRecording()
+                                }) {
+                                    Label("Record Audio", systemImage: "record.circle")
+                                }
+                            }
+                            
+                            if let audioData = audioRecorder.audioData {
+                                // Only show Play Recording button when not editing
+                                if !isEditing {
+                                    Button(action: {
+                                        print("Playing test recording")
+                                        audioRecorder.playRecording()
+                                    }) {
+                                        Label("Play Recording", systemImage: "play.circle.fill")
+                                    }
+                                }
+                                
+                                Button(role: .destructive, action: {
+                                    print("Deleting recording")
+                                    audioRecorder.deleteRecording()
+                                }) {
+                                    Label("Delete Recording", systemImage: "trash.circle.fill")
+                                }
                             }
                         }
                         
                         if let audioData = audioRecorder.audioData {
-                            Button(action: {
-                                print("Playing test recording")
-                                audioRecorder.playRecording()
-                            }) {
-                                Label("Play Recording", systemImage: "play.circle.fill")
-                            }
-                            
-                            Text("(\(audioData.count) bytes)")
+                            Text("Recording: \(audioData.count) bytes")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        } else if !audioRecorder.isRecording {
+                            Text("No recording")
                                 .font(.caption)
                                 .foregroundColor(.gray)
                         }
@@ -792,15 +936,25 @@ struct IconsView: View {
                     .disabled(selectedImage == nil)
                 }
             }
-            .onAppear {
-                if isEditing, let icon = editingIcon {
-                    newIconTitle = icon.title
-                    let iconImage = icon.image
-                    originalImage = iconImage // Store original for rotation
-                    selectedImage = iconImage
-                    imageRotationAngle = 0 // Reset rotation when editing starts
-                    if let audioData = icon.getAudioData() {
-                        audioRecorder.audioData = audioData
+            .task {
+                // Focus text field immediately when view appears (for add mode)
+                if !isEditing {
+                    // Small delay to ensure view is fully rendered
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                    isTitleFieldFocused = true
+                } else if let icon = editingIcon, selectedImage == nil {
+                    // Load image asynchronously after view appears
+                    let iconImage = await Task.detached(priority: .userInitiated) {
+                        return icon.image
+                    }.value
+                    
+                    await MainActor.run {
+                        originalImage = iconImage
+                        selectedImage = iconImage
+                        imageRotationAngle = 0
+                        if let audioData = icon.getAudioData() {
+                            audioRecorder.audioData = audioData
+                        }
                     }
                 }
             }
@@ -818,6 +972,27 @@ struct IconsView: View {
            let iconIndex = folders[folderIndex].icons.firstIndex(where: { $0.id == icon.id }) {
             editingIconIndex = iconIndex
         }
+        
+        // Set title immediately (lightweight operation)
+        newIconTitle = icon.title
+        
+        // Preload icon image asynchronously to avoid blocking UI
+        Task.detached(priority: .userInitiated) {
+            // Decode image on background thread
+            let iconImage = icon.image
+            
+            // Update UI on main thread
+            await MainActor.run {
+                originalImage = iconImage
+                selectedImage = iconImage
+                imageRotationAngle = 0
+                if let audioData = icon.getAudioData() {
+                    audioRecorder.audioData = audioData
+                }
+            }
+        }
+        
+        // Show edit view immediately (image will appear when loaded)
         isShowingEditIcon = true
     }
     
@@ -830,6 +1005,49 @@ struct IconsView: View {
         audioRecorder.audioData = nil
         editingIcon = nil
         editingIconIndex = nil
+        searchQuery = ""
+        openSymbolsService.searchResults = []
+        openSymbolsService.errorMessage = nil
+        isTitleFieldFocused = false
+    }
+    
+    private func searchSymbols() async {
+        guard !searchQuery.isEmpty else { return }
+        
+        do {
+            _ = try await openSymbolsService.searchSymbols(query: searchQuery)
+        } catch {
+            await MainActor.run {
+                openSymbolsService.errorMessage = "Search failed: \(error.localizedDescription)"
+            }
+        }
+    }
+    
+    private func selectSymbolImage(from result: SymbolResult) async {
+        do {
+            guard let image = try await openSymbolsService.downloadImage(from: result.image_url) else {
+                await MainActor.run {
+                    errorMessage = "Failed to load image"
+                    showError = true
+                }
+                return
+            }
+            
+            await MainActor.run {
+                originalImage = image
+                selectedImage = image
+                imageRotationAngle = 0
+                // Optionally set the title from the symbol name if available
+                if newIconTitle.isEmpty, let symbolName = result.name {
+                    newIconTitle = symbolName
+                }
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to download image: \(error.localizedDescription)"
+                showError = true
+            }
+        }
     }
     
     private func rotateImageClockwise() {
@@ -1164,14 +1382,14 @@ struct IconsView: View {
     }
     
     private func saveIconAsync(image: UIImage, isEditing: Bool) async {
-        // Create icon on background thread first
+        // Create icon on background thread first (with optimized image processing)
         let newIcon = await SpeakingIcon.createAsync(
             title: newIconTitle.isEmpty ? "Untitled" : newIconTitle,
             image: image,
             audioData: audioRecorder.audioData
         )
         
-        // Update UI immediately on main thread
+        // Update UI immediately on main thread (minimal synchronous work)
         await MainActor.run {
             if isEditing, let index = editingIconIndex {
                 // Update existing icon in current folder
@@ -1205,10 +1423,93 @@ struct IconsView: View {
                     folders.append(defaultFolder)
                 }
             }
-            
-            // Save in background without blocking UI
-            saveFolders()
         }
+        
+        // Save in background without blocking UI (already async, don't wait for it)
+        saveFolders()
+    }
+    
+    private var importProgressView: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                ProgressView(value: excelImporter.importProgress)
+                    .progressViewStyle(.linear)
+                
+                Text(excelImporter.importStatus)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
+            }
+            .padding()
+            .navigationTitle("Importing Icons")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+    
+    private func importIconsFromExcel(url: URL) async {
+        do {
+            // Start accessing security-scoped resource (for file picker)
+            let needsAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if needsAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            
+            // Get a local copy of folders to pass to the async function
+            var localFolders = await MainActor.run { folders }
+            
+            // Import icons
+            try await excelImporter.importIcons(from: url, folders: &localFolders)
+            
+            // Update the state property on the main actor
+            await MainActor.run {
+                folders = localFolders
+                // Save folders after import
+                saveFolders()
+                
+                // Only show success alert if icons were actually created
+                if excelImporter.createdIconCount > 0 {
+                    successMessage = excelImporter.importStatus
+                    showSuccessAlert = true
+                }
+                // Don't show any popup if no icons were imported
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Import failed: \(error.localizedDescription)"
+                showError = true
+                excelImporter.isImporting = false
+            }
+        }
+    }
+    
+    private func tryAutoImportFromExcel() async {
+        var excelURL: URL?
+        
+        // First, try to find Iconsinfo.xlsx in the app bundle
+        if let bundleURL = Bundle.main.url(forResource: "Iconsinfo", withExtension: "xlsx") {
+            excelURL = bundleURL
+        }
+        // If not in bundle, try documents directory
+        else {
+            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let fileURL = documentsPath.appendingPathComponent("Iconsinfo.xlsx")
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                excelURL = fileURL
+            }
+        }
+        
+        // If file not found, silently return (no error needed)
+        guard let url = excelURL else {
+            print("Iconsinfo.xlsx not found in bundle or documents directory")
+            return
+        }
+        
+        // Auto-import (will only create new icons/folders, skipping existing ones)
+        print("Auto-importing from Iconsinfo.xlsx...")
+        await importIconsFromExcel(url: url)
     }
     
     init() {
