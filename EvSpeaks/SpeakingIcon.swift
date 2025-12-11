@@ -22,16 +22,49 @@ struct SpeakingIcon: Identifiable, Codable {
     
     init(title: String, image: UIImage, audioData: Data? = nil, isQuickAccess: Bool = false) {
         self.title = title
-        // Process image compression on background thread to avoid UI hang
-        self.imageData = image.jpegData(compressionQuality: 0.8) ?? Data()
+        // Process image compression - use slightly lower quality for faster processing
+        // Since this is called from background thread in createAsync, it won't block UI
+        self.imageData = image.jpegData(compressionQuality: 0.75) ?? Data()
         self.audioData = audioData
         self.isQuickAccess = isQuickAccess
     }
     
-    // Async initializer for better performance
+    // Optimized image resizing and compression
+    private static func optimizeImage(_ image: UIImage) -> UIImage {
+        // Resize large images to a reasonable size for icons (max 512x512)
+        let maxDimension: CGFloat = 512
+        let size = image.size
+        
+        // Only resize if image is larger than max dimension
+        guard size.width > maxDimension || size.height > maxDimension else {
+            return image
+        }
+        
+        let aspectRatio = size.width / size.height
+        let newSize: CGSize
+        
+        if size.width > size.height {
+            newSize = CGSize(width: maxDimension, height: maxDimension / aspectRatio)
+        } else {
+            newSize = CGSize(width: maxDimension * aspectRatio, height: maxDimension)
+        }
+        
+        // Resize image efficiently
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        defer { UIGraphicsEndImageContext() }
+        
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        return UIGraphicsGetImageFromCurrentImageContext() ?? image
+    }
+    
+    // Async initializer for better performance with optimized image processing
     static func createAsync(title: String, image: UIImage, audioData: Data? = nil, isQuickAccess: Bool = false) async -> SpeakingIcon {
         return await Task.detached(priority: .userInitiated) {
-            return SpeakingIcon(title: title, image: image, audioData: audioData, isQuickAccess: isQuickAccess)
+            // Optimize image before compression (resize if needed)
+            let optimizedImage = optimizeImage(image)
+            
+            // Create icon with optimized image (compression happens in init, but on background thread)
+            return SpeakingIcon(title: title, image: optimizedImage, audioData: audioData, isQuickAccess: isQuickAccess)
         }.value
     }
     

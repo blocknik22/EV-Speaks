@@ -31,7 +31,10 @@ class AudioRecorder: NSObject, ObservableObject {
     private func setupAudioSessionForPlayback() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default)
+            // Deactivate session first to prevent conflicts
+            try session.setActive(false, options: .notifyOthersOnDeactivation)
+            // Set category for playback only (no recording)
+            try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
             print("Audio session setup for playback")
         } catch {
@@ -122,9 +125,22 @@ class AudioRecorder: NSObject, ObservableObject {
             return
         }
         
-        // Set up audio session for playback
-        setupAudioSessionForPlayback()
-        
+        // Stop any ongoing recording first to prevent conflicts
+        if isRecording {
+            stopRecording()
+            // Wait a moment for recording to fully stop
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.setupAudioSessionForPlayback()
+                self.startPlayback(data: data)
+            }
+        } else {
+            // Set up audio session for playback
+            setupAudioSessionForPlayback()
+            startPlayback(data: data)
+        }
+    }
+    
+    private func startPlayback(data: Data) {
         do {
             audioPlayer = try AVAudioPlayer(data: data)
             audioPlayer?.delegate = self
@@ -139,6 +155,25 @@ class AudioRecorder: NSObject, ObservableObject {
             print("Failed to play recording: \(error)")
             errorMessage = "Playback failed: \(error.localizedDescription)"
         }
+    }
+    
+    func deleteRecording() {
+        // Stop any ongoing recording
+        if isRecording {
+            stopRecording()
+        }
+        
+        // Stop any ongoing playback
+        audioPlayer?.stop()
+        audioPlayer = nil
+        
+        // Clear audio data
+        audioData = nil
+        
+        // Remove temporary recording file
+        try? FileManager.default.removeItem(at: recordingURL)
+        
+        print("Recording deleted")
     }
 }
 

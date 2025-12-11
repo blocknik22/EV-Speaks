@@ -11,6 +11,7 @@
 		240AFE522EAC71CE008F5FD0 /* FirebaseAuthCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = 240AFE512EAC71CE008F5FD0 /* FirebaseAuthCombine-Community */; };
 		240AFE542EAC745F008F5FD0 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 240AFE532EAC745F008F5FD0 /* FirebaseFirestore */; };
 		240AFE5A2EAC796F008F5FD0 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 240AFE592EAC796F008F5FD0 /* GoogleService-Info.plist */; };
+		24F6A2862EC8450F00E32B41 /* CoreXLSX in Frameworks */ = {isa = PBXBuildFile; productRef = 24F6A2852EC8450F00E32B41 /* CoreXLSX */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				24F6A2862EC8450F00E32B41 /* CoreXLSX in Frameworks */,
 				240AFE502EAC71CE008F5FD0 /* FirebaseAuth in Frameworks */,
 				240AFE522EAC71CE008F5FD0 /* FirebaseAuthCombine-Community in Frameworks */,
 				240AFE542EAC745F008F5FD0 /* FirebaseFirestore in Frameworks */,
@@ -93,6 +95,7 @@
 				240AFE4F2EAC71CE008F5FD0 /* FirebaseAuth */,
 				240AFE512EAC71CE008F5FD0 /* FirebaseAuthCombine-Community */,
 				240AFE532EAC745F008F5FD0 /* FirebaseFirestore */,
+				24F6A2852EC8450F00E32B41 /* CoreXLSX */,
 			);
 			productName = "Ev Speaks";
 			productReference = 24B05F932DE6B52400F376F6 /* EvSpeaks.app */;
@@ -124,6 +127,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				240AFE4E2EAC71CE008F5FD0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				24F6A2842EC8450F00E32B41 /* XCRemoteSwiftPackageReference "CoreXLSX" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 24B05F942DE6B52400F376F6 /* Products */;
@@ -380,6 +384,14 @@
 				minimumVersion = 12.4.0;
 			};
 		};
+		24F6A2842EC8450F00E32B41 /* XCRemoteSwiftPackageReference "CoreXLSX" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CoreOffice/CoreXLSX";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.14.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -397,6 +409,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 240AFE4E2EAC71CE008F5FD0 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		24F6A2852EC8450F00E32B41 /* CoreXLSX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 24F6A2842EC8450F00E32B41 /* XCRemoteSwiftPackageReference "CoreXLSX" */;
+			productName = CoreXLSX;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
